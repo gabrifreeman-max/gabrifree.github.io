@@ -1,104 +1,136 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configura Quiz SY0-701</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            background-color: var(--tg-theme-bg-color, #1f2937);
-            color: var(--tg-theme-text-color, #ffffff);
-            font-family: sans-serif;
-        }
-        .btn-primary {
-            background-color: var(--tg-theme-button-color, #3b82f6);
-            color: var(--tg-theme-button-text-color, #ffffff);
-        }
-    </style>
-</head>
-<body class="p-4 flex flex-col h-screen box-border">
+import re
+import json
+import os
+from pypdf import PdfReader
 
-    <h1 class="text-2xl font-bold mb-6 text-center">⚙️ Configura Test</h1>
+# Nome del file PDF (assicurati sia corretto)
+PDF_NAME = "SY0-701.pdf"
 
-    <!-- Selezione Numero Domande -->
-    <div class="mb-6">
-        <label class="block mb-2 text-sm font-medium opacity-80">Numero di Domande</label>
-        <div class="grid grid-cols-3 gap-2">
-            <button onclick="selectNum(10)" id="btn-10" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">10</button>
-            <button onclick="selectNum(20)" id="btn-20" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">20</button>
-            <button onclick="selectNum(50)" id="btn-50" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">50</button>
-            <button onclick="selectNum(90)" id="btn-90" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">90</button>
-            <button onclick="selectNum('all')" id="btn-all" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition col-span-2">Tutte</button>
-        </div>
-    </div>
+def pulisci_testo_base(testo):
+    """Pulizia preliminare del testo grezzo."""
+    # Rimuove intestazioni di pagina frequenti
+    testo = re.sub(r'--- PAGE \d+ ---', '', testo)
+    testo = re.sub(r'SY0-701', '', testo)
+    testo = re.sub(r'CompTIA Security\+ Exam', '', testo)
+    
+    # Rimuove doppi spazi e tabulazioni strane
+    testo = testo.replace('\t', ' ').replace('\r', '')
+    
+    # TRUCCO: A volte le opzioni sono attaccate (es: "text.A. Option"). 
+    # Forziamo uno spazio prima di A., B., C., etc. se sono a inizio riga logica o dopo un punto
+    testo = re.sub(r'([a-z0-9])([A-F]\.)', r'\1 \n\2', testo)
+    
+    return testo.strip()
 
-    <!-- Toggle Timer -->
-    <div class="mb-6 bg-gray-800 p-4 rounded-xl flex justify-between items-center">
-        <div>
-            <div class="font-bold">⏱️ Timer</div>
-            <div class="text-xs opacity-70">30 min (o 90m per 90q)</div>
-        </div>
-        <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" id="timer-toggle" class="sr-only peer">
-            <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-        </label>
-    </div>
+def estrai_domande(pdf_path):
+    if not os.path.exists(pdf_path):
+        print(f"❌ ERRORE: Non trovo il file '{pdf_path}' nella cartella.")
+        return []
 
-    <!-- Feedback Mode -->
-    <div class="mb-8">
-        <label class="block mb-2 text-sm font-medium opacity-80">Modalità Correzione</label>
-        <select id="feedback-mode" class="w-full bg-gray-700 text-white p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="feed_now">⚡ Immediata (dopo ogni risposta)</option>
-            <option value="feed_end">🙈 Alla fine (Simulazione esame)</option>
-        </select>
-    </div>
+    try:
+        reader = PdfReader(pdf_path)
+    except Exception as e:
+        print(f"❌ Errore lettura PDF: {e}")
+        return []
 
-    <!-- Spacer -->
-    <div class="flex-grow"></div>
+    full_text = ""
+    print(f"📖 Lettura di {len(reader.pages)} pagine in corso...")
+    
+    for page in reader.pages:
+        txt = page.extract_text()
+        if txt:
+            full_text += txt + "\n"
+    
+    full_text = pulisci_testo_base(full_text)
+    
+    # Divide le domande cercando "QUESTION: N"
+    # Usa un regex robusto che cattura anche se c'è spazio strano "QUESTION : 1"
+    pattern = re.split(r'(QUESTION\s*:\s*\d+)', full_text)
+    
+    domande_output = []
+    skipped_count = 0
+    log_errori = []
 
-    <!-- Main Button -->
-    <button onclick="sendData()" class="btn-primary w-full py-4 rounded-xl font-bold text-lg shadow-lg transform active:scale-95 transition">
-        AVVIA SIMULAZIONE 🚀
-    </button>
+    # Il primo elemento è testo prima della prima domanda, lo ignoriamo
+    # Poi abbiamo coppie: [HEADER, CONTENT, HEADER, CONTENT...]
+    for i in range(1, len(pattern), 2):
+        header = pattern[i].strip()        # Es: QUESTION: 1
+        content = pattern[i+1].strip()     # Tutto il resto
+        
+        q_id = header.replace("QUESTION", "").replace(":", "").strip()
 
-    <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand(); // Espande la web app a tutto schermo
+        # 1. Cerca la risposta corretta (Answer: X o Answer(s): X)
+        # Cerchiamo alla fine del blocco testo
+        match_risposta = re.search(r'Answer(?:\(s\))?\s*:\s*([A-F,\s]+)', content, re.IGNORECASE)
+        
+        if not match_risposta:
+            skipped_count += 1
+            log_errori.append(f"ID {q_id}: Nessuna risposta trovata (probabile Drag&Drop o Istruzioni)")
+            continue 
 
-        let selectedNum = 10;
+        risposta_grezza = match_risposta.group(1).strip()
+        corretta = [x.strip() for x in re.split(r'[,\s]+', risposta_grezza) if x.strip()]
+        
+        # 2. Separa il testo della domanda dalle opzioni
+        # Prendiamo tutto ciò che c'è PRIMA della scritta "Answer..."
+        content_no_answer = content[:match_risposta.start()].strip()
+        
+        # 3. Estrazione Opzioni (A., B., C., ...)
+        # Usiamo un regex che cerca "Lettera + Punto + Spazio" o fine riga
+        # Split restituisce: [TestoDomanda, "A.", "TestoA", "B.", "TestoB", ...]
+        parts = re.split(r'([A-F]\.)', content_no_answer)
+        
+        if len(parts) < 3:
+            skipped_count += 1
+            log_errori.append(f"ID {q_id}: Formato opzioni non riconosciuto (Mancano A. B. C.)")
+            continue
+            
+        quesito = parts[0].strip()
+        
+        # Puliamo il quesito da "a capo" inutili che spezzano le frasi a metà
+        lines = quesito.split('\n')
+        quesito_pulito = " ".join([l.strip() for l in lines if l.strip()])
+        
+        opzioni = []
+        lettere = []
+        
+        # parts[1] = "A.", parts[2] = "Testo opzione A", parts[3] = "B.", parts[4] = "Testo opzione B"...
+        for k in range(1, len(parts), 2):
+            let = parts[k].replace('.', '').strip() # "A"
+            text_opt = parts[k+1].strip()
+            
+            # Pulizia testo opzione (rimuove a capo interni)
+            text_opt = " ".join([t.strip() for t in text_opt.split('\n')])
+            
+            opzioni.append(text_opt)
+            lettere.append(let)
+        
+        # Controllo finale validità
+        if not opzioni or not corretta:
+            skipped_count += 1
+            continue
 
-        function selectNum(num) {
-            selectedNum = num;
-            // Reset stile bottoni
-            document.querySelectorAll('.num-btn').forEach(btn => {
-                btn.classList.remove('ring-2', 'ring-blue-400', 'bg-gray-600');
-                btn.classList.add('bg-gray-700');
-            });
-            // Attiva bottone scelto
-            let id = 'btn-' + num;
-            document.getElementById(id).classList.remove('bg-gray-700');
-            document.getElementById(id).classList.add('bg-gray-600', 'ring-2', 'ring-blue-400');
-        }
+        domande_output.append({
+            "id": q_id,
+            "domanda": quesito_pulito,
+            "opzioni": opzioni,          
+            "lettere": lettere,  
+            "corretta": corretta         
+        })
 
-        // Seleziona 10 di default
-        selectNum(10);
+    # Scrittura Log errori per debug
+    with open("log_errori.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(log_errori))
 
-        function sendData() {
-            const hasTimer = document.getElementById('timer-toggle').checked;
-            const feedback = document.getElementById('feedback-mode').value;
+    print(f"⚠️ Domande saltate: {skipped_count} (vedi log_errori.txt)")
+    return domande_output
 
-            const data = {
-                action: "start_quiz",
-                num: selectedNum,
-                timer: hasTimer,
-                feedback: feedback
-            };
-
-            // Invia i dati al Bot Python
-            tg.sendData(JSON.stringify(data));
-        }
-    </script>
-</body>
-</html>
+if __name__ == "__main__":
+    data = estrai_domande(PDF_NAME)
+    if data:
+        with open("database_domande.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        print(f"✅ SUCCESSO! {len(data)} domande valide salvate in 'database_domande.json'.")
+        print("   Ora puoi avviare il bot.")
+    else:
+        print("❌ Nessuna domanda estratta.")
