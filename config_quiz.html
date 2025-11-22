@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configura Quiz SY0-701</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: var(--tg-theme-bg-color, #1f2937);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-family: sans-serif;
+        }
+        .btn-primary {
+            background-color: var(--tg-theme-button-color, #3b82f6);
+            color: var(--tg-theme-button-text-color, #ffffff);
+        }
+    </style>
+</head>
+<body class="p-4 flex flex-col h-screen box-border">
+
+    <h1 class="text-2xl font-bold mb-6 text-center">⚙️ Configura Test</h1>
+
+    <!-- Selezione Numero Domande -->
+    <div class="mb-6">
+        <label class="block mb-2 text-sm font-medium opacity-80">Numero di Domande</label>
+        <div class="grid grid-cols-3 gap-2">
+            <button onclick="selectNum(10)" id="btn-10" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">10</button>
+            <button onclick="selectNum(20)" id="btn-20" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">20</button>
+            <button onclick="selectNum(50)" id="btn-50" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">50</button>
+            <button onclick="selectNum(90)" id="btn-90" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition">90</button>
+            <button onclick="selectNum('all')" id="btn-all" class="num-btn bg-gray-700 hover:bg-gray-600 py-2 rounded-lg transition col-span-2">Tutte</button>
+        </div>
+    </div>
+
+    <!-- Toggle Timer -->
+    <div class="mb-6 bg-gray-800 p-4 rounded-xl flex justify-between items-center">
+        <div>
+            <div class="font-bold">⏱️ Timer</div>
+            <div class="text-xs opacity-70">30 min (o 90m per 90q)</div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="timer-toggle" class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+        </label>
+    </div>
+
+    <!-- Feedback Mode -->
+    <div class="mb-8">
+        <label class="block mb-2 text-sm font-medium opacity-80">Modalità Correzione</label>
+        <select id="feedback-mode" class="w-full bg-gray-700 text-white p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="feed_now">⚡ Immediata (dopo ogni risposta)</option>
+            <option value="feed_end">🙈 Alla fine (Simulazione esame)</option>
+        </select>
+    </div>
+
+    <!-- Spacer -->
+    <div class="flex-grow"></div>
+
+    <!-- Main Button -->
+    <button onclick="sendData()" class="btn-primary w-full py-4 rounded-xl font-bold text-lg shadow-lg transform active:scale-95 transition">
+        AVVIA SIMULAZIONE 🚀
+    </button>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand(); // Espande la web app a tutto schermo
+
+        let selectedNum = 10;
+
+        function selectNum(num) {
+            selectedNum = num;
+            // Reset stile bottoni
+            document.querySelectorAll('.num-btn').forEach(btn => {
+                btn.classList.remove('ring-2', 'ring-blue-400', 'bg-gray-600');
+                btn.classList.add('bg-gray-700');
+            });
+            // Attiva bottone scelto
+            let id = 'btn-' + num;
+            document.getElementById(id).classList.remove('bg-gray-700');
+            document.getElementById(id).classList.add('bg-gray-600', 'ring-2', 'ring-blue-400');
+        }
+
+        // Seleziona 10 di default
+        selectNum(10);
+
+        function sendData() {
+            const hasTimer = document.getElementById('timer-toggle').checked;
+            const feedback = document.getElementById('feedback-mode').value;
+
+            const data = {
+                action: "start_quiz",
+                num: selectedNum,
+                timer: hasTimer,
+                feedback: feedback
+            };
+
+            // Invia i dati al Bot Python
+            tg.sendData(JSON.stringify(data));
+        }
+    </script>
+</body>
+</html>
